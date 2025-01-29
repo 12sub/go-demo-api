@@ -4,6 +4,9 @@ import (
 	"log"
 	"net/http"
 	"time"
+
+	"golang.org/x/time/rate"
+	"github.com/gorilla/websocket"
 )
 
 type APIServer struct {
@@ -17,6 +20,30 @@ func NewAPIServer(addr string) *APIServer {
 		addr: addr,
 	}
 }
+
+var limiter = rate.NewLimiter(1, 5)
+var upgrader = websocket.Upgrader{}
+
+func wsHandler(w http.ResponseWriter, r *http.Request) {
+	conn, _ := upgrader.Upgrade(w, r, nil)
+	defer conn.Close()
+
+	for {
+		_, msg, _ := conn.ReadMessage()
+		conn.WriteMessage(websocket.TextMessage, msg)
+	}
+}
+
+func rateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !limiter.Allow() {
+			http.Error(w, "Too many requests", http.StatusTooManyRequests)
+			return
+		}
+		next(w, r)
+	}
+}
+
 
 func (s *APIServer) Run() error {
 	router := http.NewServeMux()
